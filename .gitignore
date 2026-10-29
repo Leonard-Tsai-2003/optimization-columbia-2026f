@@ -1,0 +1,6 @@
+.DS_Store
+gurobi.lic
+__pycache__/
+output/
+*.png
+202510-citibike-tripdata/
