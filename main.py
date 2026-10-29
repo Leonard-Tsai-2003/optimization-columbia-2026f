@@ -64,6 +64,7 @@ def main():
                         help="Operating travel cost per km in $/km (default: 1.5).")
     parser.add_argument("--beta", type=float, default=5.0,
                         help="Penalty cost per unit unmet target bike in $/bike (default: 5.0).")
+    parser.add_argument("--truck_capacity", "-Q", type=float, default=25.0, help="Truck capacity value")
 
     args = parser.parse_args()
 
@@ -101,7 +102,7 @@ def main():
         {'truck_id': 'Truck_2', 'lat': 40.720, 'lon': -73.985}   # Lower East Side Depot S_2
     ]
     
-    Q = 25              # Max truck capacity
+    Q = args.truck_capacity          # Max truck capacity
     W_k = args.max_dist # Distance budget per truck
     alpha = args.alpha  # Operating travel cost ($/km)
     beta = args.beta    # Penalty per bike
@@ -139,7 +140,7 @@ def main():
             dataset, 
             depots, 
             solution, 
-            save_filename=f"P{args.sample_pct}_W{args.max_dist}_a{args.alpha}_b{args.beta}.png",
+            save_filename=f"P{args.sample_pct}_W{args.max_dist}_Q{args.truck_capacity}_a{args.alpha}_b{args.beta}.png",
             sample_pct=args.sample_pct
         )
 

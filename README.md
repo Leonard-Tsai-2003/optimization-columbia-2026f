@@ -86,6 +86,7 @@ python main.py [OPTIONS]
 | `-p` | `--sample_pct` | `float` | `None` | Percentage of active Lower Manhattan stations to include in the model (e.g., `10` for 10%, `25` for 25%, `100` for 100%). |
 | `-n` | `--num_stations` | `int` | `12` | Fixed count of stations to sample. Used if `--sample_pct` is omitted. |
 | `-t` | `--trip_data` | `str` | `202510-citibike-tripdata` | Folder directory or specific CSV/ZIP file path containing historical trip data. |
+| `-Q` | `--truck_capacity` | `int` | `25.0` | Maximum bikes carried by one truck. |
 | `-w` | `--max_dist` | `float` | `25.0` | Maximum route travel distance limit per truck in kilometers ($W_k$). |
 | `--alpha` | `--alpha` | `float` | `1.5` | Operating transportation cost in dollars per kilometer ($\alpha$). |
 | `--beta` | `--beta` | `float` | `5.0` | Penalty cost in dollars per unit unmet target bike shortfall ($\beta$). |
