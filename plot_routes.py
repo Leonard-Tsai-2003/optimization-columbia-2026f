@@ -1,6 +1,7 @@
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
 import matplotlib.patches as mpatches
+import os
 from datetime import datetime
 from typing import Dict, List, Any
 import logging
@@ -248,6 +249,10 @@ def plot_rebalancing_solution(
     ax.legend(handles=handles, loc='upper left', frameon=True, facecolor='white', framealpha=0.95, fontsize=8.5)
     
     plt.tight_layout()
-    plt.savefig(save_filename, dpi=300)
-    print(f"Route map saved successfully to '{save_filename}'.")
+
+    # Ensure the output folder exists
+    output_dir = "./output"
+    os.makedirs(output_dir, exist_ok=True)
+    plt.savefig(os.path.join(output_dir, save_filename), dpi=300)
+    print(f"Route map saved successfully to '{os.path.join(output_dir, save_filename)}'.")
     plt.show()

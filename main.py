@@ -139,7 +139,7 @@ def main():
             dataset, 
             depots, 
             solution, 
-            save_filename="rebalancing_routes_map.png",
+            save_filename=f"P{args.sample_pct}_W{args.max_dist}_a{args.alpha}_b{args.beta}.png",
             sample_pct=args.sample_pct
         )
 
