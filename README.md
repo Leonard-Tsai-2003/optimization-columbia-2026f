@@ -13,12 +13,6 @@ Before running or compiling `main.py`, ensure your local environment satisfies t
 Install all required Python packages using `pip`:
 
 ```bash
-pip install gurobipy contextily pyproj matplotlib pandas requests numpy
-```
-
-Or if you have a `requirements.txt` file in your workspace:
-
-```bash
 pip install -r requirements.txt
 ```
 
@@ -85,7 +79,6 @@ python main.py [OPTIONS]
 | :--- | :--- | :--- | :--- | :--- |
 | `-p` | `--sample_pct` | `float` | `None` | Percentage of active Lower Manhattan stations to include in the model (e.g., `10` for 10%, `25` for 25%, `100` for 100%). |
 | `-n` | `--num_stations` | `int` | `12` | Fixed count of stations to sample. Used if `--sample_pct` is omitted. |
-| `-t` | `--trip_data` | `str` | `202510-citibike-tripdata` | Folder directory or specific CSV/ZIP file path containing historical trip data. |
 | `-Q` | `--truck_capacity` | `int` | `25.0` | Maximum bikes carried by one truck. |
 | `-w` | `--max_dist` | `float` | `25.0` | Maximum route travel distance limit per truck in kilometers ($W_k$). |
 | `--alpha` | `--alpha` | `float` | `1.5` | Operating transportation cost in dollars per kilometer ($\alpha$). |
@@ -115,25 +108,3 @@ python main.py [OPTIONS]
 To prevent cross-river routing errors (e.g., placing stations across the East River in Brooklyn), the preprocessing pipeline enforces a two-step boundary filter:
 1. **GBFS Region Check**: Verifies station membership via `region_id` (Manhattan `region_id = 71`).
 2. **Ray-Casting Polygon Mask**: Applies a precise landmass polygon covering Lower Manhattan south of 14th Street to strictly exclude waterfronts, East River segments, and Brooklyn neighborhood overlaps (DUMBO, Brooklyn Heights, Navy Yard).
-
----
-
-## 5. WHAT IS NEEDED TO DO
-
-The following enhancements are identified for future development and model extensions:
-
-### 1. Enhanced Target Inventory Prediction
-Instead of estimating morning peak demand from simple historical averages ($I_i^* = \min\{C_i, \max\{0, \text{round}(I_i^0 + P_i - R_i)\}\}$), implement an **advanced predictive machine learning pipeline** (e.g., XGBoost, LSTM, or Spatial-Temporal Graph Neural Networks). The predictive model should incorporate:
-* Real-time weather forecasts (temperature, precipitation).
-* Day-of-week and seasonal variations.
-* Local event schedules and public transit outage patterns.
-
-### 2. Rigorous Depot Location Justification
-Currently, depot locations are statically assigned to Financial District and Lower East Side coordinates. Future work must **mathematically justify depot placement and fleet allocation**:
-* Formulate a facility location model ($p$-median or $p$-center problem) to find optimal depot sites that minimize total deadhead travel distance.
-* Evaluate the trade-offs between single-depot vs. multi-depot configurations under varying fleet sizes ($\vert K \vert$).
-
-### 3. Geographic Scope & Sampling Validity Analysis
-The current model scope is restricted to Lower Manhattan (South of 14th St). Key research questions to address:
-* **Full-System Inclusion vs. Sub-Region Decomposition**: Evaluate whether solving all NYC stations simultaneously in a single MILP formulation is computationally tractable, or if spatial clustering (e.g., $k$-means / spectral clustering by neighborhood) is necessary.
-* **Sampling Validity**: Perform sensitivity analysis to determine whether random station sampling ($n\%$) statistically preserves the true net demand distribution, or if graph-based clustering provides superior sub-problem approximations.
