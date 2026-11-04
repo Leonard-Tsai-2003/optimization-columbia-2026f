@@ -129,7 +129,7 @@ def main():
     parser = argparse.ArgumentParser(description="Solve the Midtown Citi Bike case.")
     parser.add_argument("-p", "--time-limit", type=float, default=600)
     parser.add_argument("-Q", "--truck-capacity", type=int, default=25)
-    parser.add_argument("--max-distance", type=float, default=25)
+    parser.add_argument("-w", "--max-distance", type=float, default=25)
     args = parser.parse_args()
     if not all(math.isfinite(value) and value > 0 for value in (
         args.time_limit, args.truck_capacity, args.max_distance,
