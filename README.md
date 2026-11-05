@@ -143,19 +143,21 @@ python main.py [OPTIONS]
 
 Evaluating the MILP model on the 165-station Midtown dataset demonstrates significant reductions in target inventory mismatches:
 
-| Metric | Baseline (No Rebalancing) | MILP Optimized Model | Performance Delta |
-| :--- | :--- | :--- | :--- |
-| **Absolute Inventory Mismatch** | `884 bikes` | **`294 bikes`** | **$-66.7\%$** ($-590$ bikes) |
-| **Approx. Total Distance** | `0.00 km` | **`47.73 km`** | $+47.73$ km |
-| **Travel Cost Term ($\alpha \cdot D$)** | `$0.00` | **`$71.60`** | $+71.60$ |
-| **Mismatch Penalty ($\beta \cdot u$)** | `$4,420.00` | **`$1,470.00`** | $-66.7\%$ |
-| **Total Objective Value** | `$4,420.00` | **`$1,541.60`** | **$-65.1\%$** |
+| Metric | Baseline (No Rebalancing) | Gurobi MILP (Milestone 4) | Absolute Change | % Improvement |
+| :--- | :---: | :---: | :---: | :---: |
+| **Abs. Inventory Mismatch** | $884\text{ bikes}$ | **$228\text{ bikes}$** | $-656\text{ bikes}$ | **$-74.2\%$** |
+| **Approx. Total Travel Distance** | $0.000\text{ km}$ | **$49.445\text{ km}$** | $+49.445\text{ km}$ | N/A |
+| **Travel Cost Term** ($\alpha = 1.5$) | $0.0000$ | **$74.1675$** | $+74.1675$ | N/A |
+| **Mismatch Penalty Term** ($\beta = 5.0$) | $4,420.0000$ | **$1,140.0000$** | $-3,280.0000$ | **$-74.2\%$** |
+| **Total Objective Value** | **$4,420.0000$** | **$1,214.1675$** | **$-3,205.8325$** | **$-72.5\%$** |
 
 ### Vehicle Performance Summary
 
-* **Truck 1 (Broadway & W 25th St)**: Serves **48 stops**, covers **24.735 km** ($98.9\%$ of distance budget), and transfers **176 bikes**.
-* **Truck 2 (W 47th St & 6th Ave)**: Serves **40 stops**, covers **22.995 km** ($92.0\%$ of distance budget), and transfers **119 bikes**.
-* **Total Operations**: Visits **88 stations** and moves **295 bikes** across Midtown Manhattan.
+| Truck ID | Depot Location | Coordinates | Stops Made | Total Dist. (km) | Budget Used | Bikes Picked Up / Delivered |
+| :--- | :--- | :---: | :---: | :---: | :---: | :---: |
+| **Truck 1** | Broadway & W 25 St | $(40.7429, -73.9892)$ | $51$ | $24.632\text{ km}$ | $98.5\%$ | $197\text{ bikes}$ |
+| **Truck 2** | W 47 St & 6 Ave | $(40.7582, -73.9820)$ | $46$ | $24.813\text{ km}$ | $99.3\%$ | $132\text{ bikes}$ |
+| **Total** | — | — | **$97$** | **$49.445\text{ km}$** | — | **$329\text{ bikes}$** |
 
 > **Key Operational Finding:** Distance allowance $W_k = 25.0\text{ km}$ acts as the binding constraint limiting further mismatch reduction, rather than instantaneous vehicle payload capacity $Q$.
 
