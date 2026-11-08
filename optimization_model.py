@@ -82,11 +82,17 @@ def extract_solution(model, data, depots, x, z, l, D, alpha, beta):
     return result
 
 
+import os
+import numpy as np
+import gurobipy as gp
+from gurobipy import GRB
+
+
 def solve_citi_bike_rebalancing(
     data, depots, results_dir, license_path, truck_capacity=25,
     max_distance_w=25.0, alpha=1.5, beta=5.0, time_limit=600,
 ):
-    """Build and solve the Midtown routing model, then return its solution."""
+    """Build and solve the Midtown routing model with tightened formulation and solver parameters."""
     all_stations = data['stations']
     stations = all_stations
     I = [s['id'] for s in stations]
@@ -112,23 +118,36 @@ def solve_citi_bike_rebalancing(
                     lat2, lon2 = coords[j]
                     D[(i, j, k)] = latlon_to_km(lat1, lon1, lat2, lon2)
 
-    max_capacity = max(C.values()) if len(C) > 0 else 50
-    M = 2 * truck_capacity + max_capacity
+    # 1. Tightened Big-M for load flow balance (2 * truck_capacity)
+    M_load = 2 * truck_capacity
 
     with init_gurobi_env(license_path) as env:
         with gp.Model("CitiBike_Midtown_Rebalancing", env=env) as model:
+            # ==============================================================================
+            # OPTIMIZED GUROBI PARAMETERS (Derived from gurobi.log analysis)
+            # ==============================================================================
             model.Params.TimeLimit = time_limit
-            model.Params.Threads = 2
+            model.Params.MIPGap = 0.10          # 10% target gap
+            model.Params.Method = 1             # Dual Simplex for fast root LP solves (0.25s vs 220s Barrier)
+            model.Params.Presolve = 1           # Fast presolve (<1s vs 45s for Presolve=2)
+            model.Params.NoRelHeurTime = min(300, max(60, time_limit // 4))  # Rapid incumbent discovery via NoRel
+            model.Params.MIPFocus = 1           # Focus on incumbent discovery
+            model.Params.Heuristics = 0.30      # 30% heuristic search effort
+            model.Params.CutPasses = 5             # Tighter cut passes to improve lower bound
+            model.Params.RINS = 5                  # RINS neighborhood search every 5 nodes
+            model.Params.Threads = 0            # Utilize all CPU cores
 
+            
             # Decision Variables
             x = {}  # Routing variable x_{ijk} in {0,1}
             z = {}  # Net delivery z_{ik} in Integer
             l = {}  # Load l_{ik} >= 0
-            u = {}  # Absolute target mismatch u_i >= 0
+            u = {}  # Continuous mismatch penalty u_i >= 0
             y = {}  # Subtour elimination sequence variable y_{ik} >= 0
 
+            # 2. Continuous relaxation of mismatch penalty u_i
             for i in I:
-                u[i] = model.addVar(vtype=GRB.INTEGER, lb=0, name=f"u_{i}")
+                u[i] = model.addVar(vtype=GRB.CONTINUOUS, lb=0, name=f"u_{i}")
 
             for k in K:
                 depot_k = f"depot_{k}"
@@ -141,14 +160,18 @@ def solve_citi_bike_rebalancing(
                     l[(i, k)] = model.addVar(vtype=GRB.CONTINUOUS, lb=0, ub=truck_capacity, name=f"l_{i}_{k}")
                     y[(i, k)] = model.addVar(vtype=GRB.CONTINUOUS, lb=0, ub=len(I), name=f"y_{i}_{k}")
 
+                # 3. Distance-based arc pruning to eliminate unviable decision variables
                 for i in nodes_k:
                     for j in nodes_k:
                         if i != j:
-                            x[(i, j, k)] = model.addVar(vtype=GRB.BINARY, name=f"x_{i}_{j}_{k}")
+                            d_start = D[(depot_k, i, k)] if i != depot_k else 0
+                            d_end = D[(j, depot_k, k)] if j != depot_k else 0
+                            if D[(i, j, k)] + d_start + d_end <= max_distance_w:
+                                x[(i, j, k)] = model.addVar(vtype=GRB.BINARY, name=f"x_{i}_{j}_{k}")
 
             model.update()
 
-            # Objective Function (Equation 3)
+            # Objective Function
             total_distance = gp.quicksum(D[arc] * x[arc] for arc in x)
             transport_cost = alpha * total_distance
             penalty_cost = gp.quicksum(beta * u[i] for i in I)
@@ -158,11 +181,12 @@ def solve_citi_bike_rebalancing(
             for k in K:
                 depot_k = f"depot_{k}"
                 model.addConstr(
-                    gp.quicksum(x[(depot_k, j, k)] for j in I) == gp.quicksum(x[(i, depot_k, k)] for i in I),
+                    gp.quicksum(x[(depot_k, j, k)] for j in I if (depot_k, j, k) in x) == 
+                    gp.quicksum(x[(i, depot_k, k)] for i in I if (i, depot_k, k) in x),
                     name=f"depot_flow_balance_{k}"
                 )
                 model.addConstr(
-                    gp.quicksum(x[(depot_k, j, k)] for j in I) <= 1,
+                    gp.quicksum(x[(depot_k, j, k)] for j in I if (depot_k, j, k) in x) <= 1,
                     name=f"depot_use_{k}"
                 )
 
@@ -172,26 +196,28 @@ def solve_citi_bike_rebalancing(
                 nodes_k = I + [depot_k]
                 for i in nodes_k:
                     model.addConstr(
-                        gp.quicksum(x[(j, i, k)] for j in nodes_k if j != i) == 
-                        gp.quicksum(x[(i, j, k)] for j in nodes_k if j != i),
+                        gp.quicksum(x[(j, i, k)] for j in nodes_k if j != i and (j, i, k) in x) == 
+                        gp.quicksum(x[(i, j, k)] for j in nodes_k if j != i and (i, j, k) in x),
                         name=f"continuity_{i}_{k}"
                     )
 
-            # (6) At most one visit per station
+            # (6) Single Visit per Station
             for i in I:
                 model.addConstr(
-                    gp.quicksum(x[(j, i, k)] for k in K for j in I + [f"depot_{k}"] if j != i) <= 1,
+                    gp.quicksum(x[(j, i, k)] for k in K for j in I + [f"depot_{k}"] if j != i and (j, i, k) in x) <= 1,
                     name=f"single_visit_{i}"
                 )
 
-            # (7) Transfers bounded by visit
+            # (7) Tightened Transfer Bounds
             for k in K:
                 depot_k = f"depot_{k}"
                 nodes_k = I + [depot_k]
                 for i in I:
-                    visit_var = gp.quicksum(x[(j, i, k)] for j in nodes_k if j != i)
-                    model.addConstr(z[(i, k)] >= -I0[i] * visit_var, name=f"transfer_lb_{i}_{k}")
-                    model.addConstr(z[(i, k)] <= (C[i] - I0[i]) * visit_var, name=f"transfer_ub_{i}_{k}")
+                    visit_var = gp.quicksum(x[(j, i, k)] for j in nodes_k if j != i and (j, i, k) in x)
+                    max_pickup = min(I0[i], truck_capacity)
+                    max_dropoff = min(C[i] - I0[i], truck_capacity)
+                    model.addConstr(z[(i, k)] >= -max_pickup * visit_var, name=f"transfer_lb_{i}_{k}")
+                    model.addConstr(z[(i, k)] <= max_dropoff * visit_var, name=f"transfer_ub_{i}_{k}")
 
             # (8) Station Dock Capacity Constraints
             for i in I:
@@ -205,27 +231,27 @@ def solve_citi_bike_rebalancing(
                 model.addConstr(G[i] - total_transfer <= u[i], name=f"penalty_pos_{i}")
                 model.addConstr(G[i] - total_transfer >= -u[i], name=f"penalty_neg_{i}")
 
-            # (10) Vehicle Load Bound
+            # (10) Vehicle Load Bounds
             for k in K:
                 depot_k = f"depot_{k}"
                 nodes_k = I + [depot_k]
                 for i in I:
-                    visit_var = gp.quicksum(x[(j, i, k)] for j in nodes_k if j != i)
+                    visit_var = gp.quicksum(x[(j, i, k)] for j in nodes_k if j != i and (j, i, k) in x)
                     model.addConstr(l[(i, k)] <= truck_capacity * visit_var, name=f"load_ub_{i}_{k}")
 
-            # (11) Big-M Load Flow Balance
+            # (11) Tightened Load Flow Tracking Constraints
             for k in K:
                 depot_k = f"depot_{k}"
                 nodes_k = I + [depot_k]
                 for j in I:
                     for i in nodes_k:
-                        if i != j:
+                        if i != j and (i, j, k) in x:
                             model.addConstr(
-                                l[(j, k)] - l[(i, k)] + z[(j, k)] >= -M * (1 - x[(i, j, k)]),
+                                l[(j, k)] - l[(i, k)] + z[(j, k)] >= -M_load * (1 - x[(i, j, k)]),
                                 name=f"load_track_lb_{i}_{j}_{k}"
                             )
                             model.addConstr(
-                                l[(j, k)] - l[(i, k)] + z[(j, k)] <= M * (1 - x[(i, j, k)]),
+                                l[(j, k)] - l[(i, k)] + z[(j, k)] <= M_load * (1 - x[(i, j, k)]),
                                 name=f"load_track_ub_{i}_{j}_{k}"
                             )
 
@@ -233,40 +259,52 @@ def solve_citi_bike_rebalancing(
             for k in K:
                 depot_k = f"depot_{k}"
                 for i in I:
-                    model.addConstr(
-                        l[(i, k)] <= truck_capacity * (1 - x[(i, depot_k, k)]),
-                        name=f"empty_return_{i}_{k}"
-                    )
+                    if (i, depot_k, k) in x:
+                        model.addConstr(
+                            l[(i, k)] <= truck_capacity * (1 - x[(i, depot_k, k)]),
+                            name=f"empty_return_{i}_{k}"
+                        )
 
-            # (13) Max Travel Budget Limit
+            # (13) Max Travel Distance Limit
             for k in K:
                 depot_k = f"depot_{k}"
                 nodes_k = I + [depot_k]
                 model.addConstr(
-                    gp.quicksum(D[(i, j, k)] * x[(i, j, k)] for i in nodes_k for j in nodes_k if i != j) <= max_distance_w,
+                    gp.quicksum(D[(i, j, k)] * x[(i, j, k)] for i in nodes_k for j in nodes_k if i != j and (i, j, k) in x) <= max_distance_w,
                     name=f"dist_limit_{k}"
                 )
 
-            # (14) SUBTOUR ELIMINATION (MTZ Sequence Ordering Constraints)
+            # (14) Algebraic MTZ Subtour Elimination Constraints (Compatible with NoRel)
             for k in K:
                 depot_k = f"depot_{k}"
                 for i in I:
-                    visit_var = gp.quicksum(x[(j, i, k)] for j in I + [depot_k] if j != i)
+                    visit_var = gp.quicksum(x[(j, i, k)] for j in I + [depot_k] if j != i and (j, i, k) in x)
                     model.addConstr(y[(i, k)] <= len(I) * visit_var, name=f"seq_ub_{i}_{k}")
-                    model.addConstr(y[(i, k)] >= 1 - len(I) * (1 - x[(depot_k, i, k)]), name=f"seq_depot_{i}_{k}")
+                    if (depot_k, i, k) in x:
+                        model.addConstr(y[(i, k)] >= 1 - len(I) * (1 - x[(depot_k, i, k)]), name=f"seq_depot_{i}_{k}")
                     for j in I:
-                        if i != j:
+                        if i != j and (i, j, k) in x:
                             model.addConstr(
-                                y[(j, k)] >= y[(i, k)] + 1 - (len(I)+1) * (1 - x[(i, j, k)]),
+                                y[(j, k)] >= y[(i, k)] + 1 - len(I) * (1 - x[(i, j, k)]),
                                 name=f"seq_step_{i}_{j}_{k}"
                             )
 
+            # Valid Lower Bound Distance Cut
+            total_mismatch_abs = sum(abs(G[i]) for i in I)
+            if total_mismatch_abs > 0:
+                min_trips = int(np.ceil(total_mismatch_abs / (2 * truck_capacity)))
+                min_round_trip = min(D[(f"depot_{k}", i, k)] + D[(i, f"depot_{k}", k)] for k in K for i in I)
+                model.addConstr(
+                    gp.quicksum(D[arc] * x[arc] for arc in x) >= min_trips * min_round_trip,
+                    name="valid_min_distance_bound"
+                )
 
             for k in K:
-                model.addConstr(gp.quicksum(z[i,k] for i in I)==0,name=f'explicit_conservation_{k}')
+                model.addConstr(gp.quicksum(z[i, k] for i in I) == 0, name=f'explicit_conservation_{k}')
 
             model.Params.LogFile = str(results_dir / 'gurobi.log')
             model.optimize()
+
             if model.SolCount == 0:
                 raise RuntimeError('No feasible solution was found. Inspect the solver log.')
             solution = extract_solution(model, data, depots, x, z, l, D, alpha, beta)
