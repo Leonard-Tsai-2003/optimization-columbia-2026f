@@ -3,6 +3,7 @@ import os
 import gurobipy as gp
 import numpy as np
 from gurobipy import GRB
+import time
 
 def latlon_to_km(lat1, lon1, lat2, lon2):
     return np.round(84 * np.abs(lon1 - lon2) + 111 * np.abs(lat1 - lat2), 3)
@@ -79,6 +80,68 @@ def extract_solution(model, data, depots, x, z, l, D, alpha, beta):
     result.update(total_distance_km=distance,total_mismatch=mismatch,objective=alpha*distance+beta*mismatch,
         baseline_mismatch=sum(abs(v) for v in G.values()),baseline_objective=beta*sum(abs(v) for v in G.values()))
     return result
+
+def create_stagnation_callback(norel_stall_limit=50.0, mip_stall_limit=100.0):
+    """
+    Custom Gurobi callback to:
+    1. Force NoRel to proceed to MIP search after 50s without improvement.
+    2. Terminate standard MIP optimization after 100s without improvement.
+    """
+    def callback(model, where):
+        now = time.time()
+
+        if not hasattr(model, "_cb_state"):
+            model._cb_state = {
+                "norel_best": float("inf"),
+                "norel_last_impr": now,
+                "norel_proceeded": False,
+                "mip_best": float("inf"),
+                "mip_last_impr": now,
+            }
+
+        state = model._cb_state
+
+        if where in (GRB.Callback.MIP, GRB.Callback.MIPSOL):
+            # Query the current MIP phase (0 = NoRel, 1 = MIP Search, 2 = Solution Improvement)
+            try:
+                phase = model.cbGet(GRB.Callback.MIP_PHASE)
+            except gp.GurobiError:
+                phase = 1
+
+            # ------------------------------------------------------------------
+            # Phase 0: No Relaxation Heuristic (NoRel)
+            # ------------------------------------------------------------------
+            if phase == 0:
+                try:
+                    obj = model.cbGet(GRB.Callback.MIP_OBJBST)
+                except gp.GurobiError:
+                    obj = float("inf")
+
+                if obj < state["norel_best"] - 1e-6:
+                    state["norel_best"] = obj
+                    state["norel_last_impr"] = now
+                elif (now - state["norel_last_impr"] > norel_stall_limit) and not state["norel_proceeded"]:
+                    state["norel_proceeded"] = True
+                    print(f"\n[Callback] NoRel heuristic stalled for {norel_stall_limit}s without improvement. Advancing to MIP search...")
+                    model.cbProceed()
+
+            # ------------------------------------------------------------------
+            # Phase 1 & 2: Standard MIP Search & Branch-and-Cut
+            # ------------------------------------------------------------------
+            else:
+                if where == GRB.Callback.MIPSOL:
+                    obj = model.cbGet(GRB.Callback.MIPSOL_OBJ)
+                else:
+                    obj = model.cbGet(GRB.Callback.MIP_OBJBST)
+
+                if obj < state["mip_best"] - 1e-6:
+                    state["mip_best"] = obj
+                    state["mip_last_impr"] = now
+                elif (now - state["mip_last_impr"] > mip_stall_limit) and (state["mip_best"] < float("inf")):
+                    print(f"\n[Callback] MIP search stalled for {mip_stall_limit}s without improvement. Terminating solver...")
+                    model.terminate()
+
+    return callback
 
 def solve_citi_bike_rebalancing(
     data, depots, results_dir, license_path, truck_capacity=25,
@@ -294,8 +357,14 @@ def solve_citi_bike_rebalancing(
             for k in K:
                 model.addConstr(gp.quicksum(z[i, k] for i in I) == 0, name=f'explicit_conservation_{k}')
 
+            # Create the stagnation callback (50s for NoRel, 100s for MIP)
+            stagnation_cb = create_stagnation_callback(
+                norel_stall_limit=50.0,
+                mip_stall_limit=100.0
+            )
+
             model.Params.LogFile = str(results_dir / 'gurobi.log')
-            model.optimize()
+            model.optimize(stagnation_cb)
 
             if model.SolCount == 0:
                 raise RuntimeError('No feasible solution was found. Inspect the solver log.')
