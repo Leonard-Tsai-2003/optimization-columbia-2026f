@@ -4,7 +4,6 @@ import gurobipy as gp
 import numpy as np
 from gurobipy import GRB
 
-
 def latlon_to_km(lat1, lon1, lat2, lon2):
     return np.round(84 * np.abs(lon1 - lon2) + 111 * np.abs(lat1 - lat2), 3)
 
@@ -81,16 +80,9 @@ def extract_solution(model, data, depots, x, z, l, D, alpha, beta):
         baseline_mismatch=sum(abs(v) for v in G.values()),baseline_objective=beta*sum(abs(v) for v in G.values()))
     return result
 
-
-import os
-import numpy as np
-import gurobipy as gp
-from gurobipy import GRB
-
-
 def solve_citi_bike_rebalancing(
     data, depots, results_dir, license_path, truck_capacity=25,
-    max_distance_w=25.0, alpha=1.5, beta=5.0, time_limit=600,
+    max_distance_w=25.0, alpha=1.5, beta=5.0, time_limit=1200,
 ):
     """Build and solve the Midtown routing model with tightened formulation and solver parameters."""
     all_stations = data['stations']
@@ -130,8 +122,8 @@ def solve_citi_bike_rebalancing(
             model.Params.MIPGap = 0.10          # 10% target gap
             model.Params.Method = 1             # Dual Simplex for fast root LP solves (0.25s vs 220s Barrier)
             model.Params.Presolve = 1           # Fast presolve (<1s vs 45s for Presolve=2)
-            model.Params.NoRelHeurTime = min(300, max(60, time_limit // 4))  # Rapid incumbent discovery via NoRel
-            model.Params.MIPFocus = 1           # Focus on incumbent discovery
+            model.Params.NoRelHeurTime = min(500, max(60, time_limit // 4))  # Rapid incumbent discovery via NoRel
+            model.Params.MIPFocus = 3           # Focus on incumbent discovery
             model.Params.Heuristics = 0.30      # 30% heuristic search effort
             model.Params.CutPasses = 5             # Tighter cut passes to improve lower bound
             model.Params.RINS = 5                  # RINS neighborhood search every 5 nodes
