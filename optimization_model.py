@@ -26,44 +26,69 @@ def extract_solution(model, data, depots, x, z, l, D, alpha, beta):
     I = [station['id'] for station in all_stations]
     K = [depot['truck_id'] for depot in depots]
     G = {station['id']: station['G'] for station in all_stations}
+    
     status_labels = {
         GRB.OPTIMAL: 'Optimal',
         GRB.TIME_LIMIT: 'Time limit reached',
         GRB.INFEASIBLE: 'Infeasible',
+        GRB.INTERRUPTED: 'Stagnation callback terminated',  # Added status label
     }
-    status = status_labels.get(model.Status, str(model.Status))
-    runtime=model.Runtime
+    status = status_labels.get(model.Status, f"Status code {model.Status}")
+    runtime = model.Runtime
+    
     if model.SolCount == 0:
         raise RuntimeError('Gurobi returned no feasible incumbent. Check the log; do not reuse old results.')
-    gap=model.MIPGap if I else 0.0
-    bound=model.ObjBound
-    result={'solver':'Gurobi','status':status,'runtime_seconds':runtime,'has_feasible_solution':True,
-            'gap':gap,'objective_bound':bound,'stations':len(all_stations),'routing_stations':len(I),'trucks':len(K),'routes':{},'station_results':[]}
-    distance=0.0
+    
+    gap = model.MIPGap if I else 0.0
+    bound = model.ObjBound
+    
+    result = {
+        'solver': 'Gurobi',
+        'status': status,
+        'runtime_seconds': runtime,
+        'has_feasible_solution': True,
+        'gap': gap,
+        'objective_bound': bound,
+        'stations': len(all_stations),
+        'routing_stations': len(I),
+        'trucks': len(K),
+        'routes': {},
+        'station_results': []
+    }
+    
+    distance = 0.0
     for k in K:
-        depot=f'depot_{k}'
-        nodes=I+[depot]
+        depot = f'depot_{k}'
+        nodes = I + [depot]
         arcs = []
         for i in nodes:
             for j in nodes:
                 if i != j and x[i, j, k].X > 0.5:
                     arcs.append((i, j))
+        
         next_stop = dict(arcs)
         path = [depot]
         current = depot
-        for _ in range(len(I)+2):
+        for _ in range(len(I) + 2):
             if current not in next_stop:
                 break
             current = next_stop[current]
             path.append(current)
             if current == depot:
                 break
-        assert not arcs or (path[-1]==depot and len(path)-1==len(arcs))
-        dist=sum(D[i,j,k] for i,j in arcs)
-        distance+=dist
-        result['routes'][k]={'path':path,'distance_km':dist,
-            'transfers':{i:round(z[i, k].X) for i in I if i in path},
-            'loads':{i:l[i, k].X for i in I if i in path}}
+                
+        assert not arcs or (path[-1] == depot and len(path) - 1 == len(arcs))
+        dist = sum(D[i, j, k] for i, j in arcs)
+        distance += dist
+        
+        # Round l[i, k].X to integer to eliminate floating-point residual noise
+        result['routes'][k] = {
+            'path': path,
+            'distance_km': dist,
+            'transfers': {i: round(z[i, k].X) for i in I if i in path},
+            'loads': {i: round(l[i, k].X) for i in I if i in path}
+        }
+
     for station in all_stations:
         i = station['id']
         target_gap = station['G']
@@ -72,13 +97,19 @@ def extract_solution(model, data, depots, x, z, l, D, alpha, beta):
         final = initial + net
         assert 0 <= final <= station['C']
         result['station_results'].append({
-            'id':i, 'I0':initial, 'net_delivery':net, 'final_inventory':final,
-            'target':station['I_star'], 'mismatch':abs(target_gap-net),
+            'id': i, 'I0': initial, 'net_delivery': net, 'final_inventory': final,
+            'target': station['I_star'], 'mismatch': abs(target_gap - net),
         })
-    assert sum(r['net_delivery'] for r in result['station_results'])==0
-    mismatch=sum(r['mismatch'] for r in result['station_results'])
-    result.update(total_distance_km=distance,total_mismatch=mismatch,objective=alpha*distance+beta*mismatch,
-        baseline_mismatch=sum(abs(v) for v in G.values()),baseline_objective=beta*sum(abs(v) for v in G.values()))
+        
+    assert sum(r['net_delivery'] for r in result['station_results']) == 0
+    mismatch = sum(r['mismatch'] for r in result['station_results'])
+    result.update(
+        total_distance_km=distance,
+        total_mismatch=mismatch,
+        objective=alpha * distance + beta * mismatch,
+        baseline_mismatch=sum(abs(v) for v in G.values()),
+        baseline_objective=beta * sum(abs(v) for v in G.values())
+    )
     return result
 
 def create_stagnation_callback(norel_stall_limit=50.0, mip_stall_limit=100.0):
