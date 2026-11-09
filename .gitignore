@@ -4,4 +4,4 @@ __pycache__/
 output/
 *.png
 202510-citibike-tripdata/
-results/
+results*/

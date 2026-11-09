@@ -10,3 +10,4 @@ shapely
 scikit-learn
 threadpoolctl
 affine<2.4.0    
+wandb
