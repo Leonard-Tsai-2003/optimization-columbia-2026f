@@ -26,7 +26,7 @@ def plot_routes(data, depots, result, results_dir):
                    s=27, c=color, edgecolors='white', linewidths=.4, label=label, zorder=4)
 
     labels = []
-    colors = ['#29906b', '#85499f']
+    colors = ['#29906b', '#85499f', '#d97706', '#2563eb']
     for index, depot in enumerate(depots):
         truck = depot['truck_id']
         route = result['routes'][truck]
