@@ -48,11 +48,11 @@ DEFAULT_PARAMS = {
 PARAM_SWEEPS = {
     'Q (Truck Capacity)': {
         'param_key': 'truck_capacity',
-        'values': [15, 20, 25, 30, 35],
+        'values': [21, 23, 25, 27, 29],
     },
     'w (Max Distance km)': {
         'param_key': 'max_distance',
-        'values': [15.0, 20.0, 25.0, 30.0, 35.0],
+        'values': [21.0, 23.0, 25.0, 27.0, 29.0],
     },
     'alpha (Transport Weight)': {
         'param_key': 'alpha',
@@ -60,7 +60,7 @@ PARAM_SWEEPS = {
     },
     'beta (Mismatch Penalty)': {
         'param_key': 'beta',
-        'values': [4.0, 4.5, 5.0, 5.5, 6.0],
+        'values': [4.5, 4.75, 5.0, 5.25, 5.5],
     },
     'm (Number of Trucks)': {
         'param_key': 'num_trucks',
