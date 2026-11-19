@@ -18,5 +18,15 @@
     "candidate_station_id": "6667.12",
     "nearest_station_count": 84,
     "site_feasibility_verified": false
+  },
+  {
+    "truck_id": "Truck_3",
+    "depot_id": "depot_Truck_3",
+    "name": "Depot 3 (Port Authority Bus Terminal - W 41 St & 8 Ave)",
+    "lat": 40.75640548,
+    "lon": -73.9900262,
+    "candidate_station_id": "6602.03",
+    "nearest_station_count": 47,
+    "site_feasibility_verified": false
   }
 ]
